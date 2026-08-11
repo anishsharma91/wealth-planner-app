@@ -1,98 +1,80 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+import { BreakdownTable } from '../components/BreakdownTable';
+import { CurrencyModal } from '../components/CurrencyModal';
+import { GrowthChart } from '../components/GrowthChart';
+import { HeaderBar } from '../components/HeaderBar';
+import { InputControls } from '../components/InputControls';
+import { ModeSelector } from '../components/ModeSelector';
+import { PresetChips } from '../components/PresetChips';
+import { ResultsCard } from '../components/ResultsCard';
+import { SWPBanner } from '../components/SWPBanner';
+import { VisualizerTab } from '../components/VisualizerTab';
+import { useWealthPlanner } from '../hooks/useWealthPlanner';
 
 export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+const { state, actions } = useWealthPlanner();
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+return (
+<SafeAreaView style={styles.container}>
+<HeaderBar
+currency={state.currency}
+onOpenCurrencyModal={() => actions.setShowCurrencyModal(true)}
+onExportPDF={actions.handleExportPDF}
+/>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+<ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+<SWPBanner />
+<ModeSelector mode={state.mode} onSelectMode={actions.setMode} />
+<PresetChips onApplyPreset={actions.applyPreset} />
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
-  );
+<ResultsCard
+mode={state.mode}
+targetCorpus={state.targetCorpus}
+requiredSIP={state.requiredSIP}
+years={state.years}
+inflationRate={state.inflationRate}
+result={state.result}
+monthlyPassiveIncome={state.monthlyPassiveIncome}
+formatMoney={actions.formatMoney}
+/>
+
+<VisualizerTab activeTab={state.activeTab} onSelectTab={actions.setActiveTab} />
+
+{state.activeTab === 'chart' ? (
+<GrowthChart yearlyBreakdown={state.result.yearlyBreakdown} />
+) : (
+<BreakdownTable breakdown={state.result.yearlyBreakdown} formatMoney={actions.formatMoney} />
+)}
+
+<InputControls
+mode={state.mode}
+currency={state.currency}
+activeSymbol={state.activeSymbol}
+targetCorpus={state.targetCorpus} setTargetCorpus={actions.setTargetCorpus}
+monthlySIP={state.monthlySIP} setMonthlySIP={actions.setMonthlySIP}
+initialLumpsum={state.initialLumpsum} setInitialLumpsum={actions.setInitialLumpsum}
+stepUp={state.stepUp} setStepUp={actions.setStepUp}
+returnRate={state.returnRate} setReturnRate={actions.setReturnRate}
+years={state.years} setYears={actions.setYears}
+topUpAmount={state.topUpAmount} setTopUpAmount={actions.setTopUpAmount}
+topUpYear={state.topUpYear} setTopUpYear={actions.setTopUpYear}
+topUpMode={state.topUpMode} setTopUpMode={actions.setTopUpMode}
+inflationRate={state.inflationRate} setInflationRate={actions.setInflationRate}
+/>
+</ScrollView>
+
+<CurrencyModal
+visible={state.showCurrencyModal}
+selectedCurrency={state.currency}
+onSelectCurrency={actions.setCurrency}
+onClose={() => actions.setShowCurrencyModal(false)}
+/>
+</SafeAreaView>
+);
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+container: { flex: 1, backgroundColor: '#F8FAFC' },
+scrollContent: { padding: 16 },
 });
