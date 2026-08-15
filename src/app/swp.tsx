@@ -1,10 +1,8 @@
-// app/swp.tsx
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -16,6 +14,34 @@ import {
 import { SWPInput } from '../types/swpTypes';
 import { runPostTaxSWPSimulation } from '../utils/swpEngine';
 
+// Parse shorthand text (1k -> 1000, 1L -> 100000, 1Cr -> 10000000)
+const parseShorthandNumber = (text: string): number => {
+  if (!text) return 0;
+  const clean = text.trim().toLowerCase();
+
+  if (clean.endsWith('cr')) {
+    const val = parseFloat(clean.replace('cr', ''));
+    return isNaN(val) ? 0 : val * 10000000;
+  }
+  if (clean.endsWith('l')) {
+    const val = parseFloat(clean.replace('l', ''));
+    return isNaN(val) ? 0 : val * 100000;
+  }
+  if (clean.endsWith('k')) {
+    const val = parseFloat(clean.replace('k', ''));
+    return isNaN(val) ? 0 : val * 1000;
+  }
+
+  const val = parseFloat(clean.replace(/[^0-9.]/g, ''));
+  return isNaN(val) ? 0 : val;
+};
+
+// Standard number formatter matching main screen logic
+const formatNumericString = (val: number): string => {
+  if (!val || isNaN(val)) return '0';
+  return Math.round(val).toLocaleString('en-IN');
+};
+
 export default function SWPScreen() {
   const router = useRouter();
 
@@ -26,18 +52,30 @@ export default function SWPScreen() {
     expectedAnnualInflation: 0.05, // 5%
     initialMonthlyWithdrawal: 50000, // ₹50k/mo
     swpDurationYears: 15,
-    annualLTCGExemption: 125000, // ₹1.25L
-    ltcgTaxRate: 0.125, // 12.5%
-    stcgTaxRate: 0.20, // 20%
+    annualLTCGExemption: 125000,
+    ltcgTaxRate: 0.125,
+    stcgTaxRate: 0.20,
     baseCurrency: 'INR',
   });
 
-  const report = useMemo(() => runPostTaxSWPSimulation(inputs), [inputs]);
+  // Display strings formatted to actual numeric strings
+  const [corpusText, setCorpusText] = useState('1,00,00,000');
+  const [withdrawalText, setWithdrawalText] = useState('50,000');
+  const [returnText, setReturnText] = useState('10');
+  const [inflationText, setInflationText] = useState('5');
+  const [durationText, setDurationText] = useState('15');
 
-  const handleTextChange = (field: keyof SWPInput, text: string) => {
-    const val = Number(text.replace(/[^0-9.]/g, ''));
-    setInputs((prev) => ({ ...prev, [field]: isNaN(val) ? 0 : val }));
-  };
+  const report = useMemo(() => {
+    const safeInputs: SWPInput = {
+      ...inputs,
+      initialCorpus: Math.max(100000, inputs.initialCorpus || 0),
+      initialMonthlyWithdrawal: Math.max(1000, inputs.initialMonthlyWithdrawal || 0),
+      expectedAnnualReturn: Math.max(0, inputs.expectedAnnualReturn || 0),
+      expectedAnnualInflation: Math.max(0, inputs.expectedAnnualInflation || 0),
+      swpDurationYears: Math.max(1, inputs.swpDurationYears || 1),
+    };
+    return runPostTaxSWPSimulation(safeInputs);
+  }, [inputs]);
 
   const handleBackPress = () => {
     if (router.canGoBack()) {
@@ -48,14 +86,48 @@ export default function SWPScreen() {
   };
 
   const formatCurrency = (amount: number) => {
+    if (isNaN(amount) || amount === null) return '₹0';
     if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)} Cr`;
     if (amount >= 100000) return `₹${(amount / 100000).toFixed(2)} Lakh`;
     return `₹${Math.round(amount).toLocaleString('en-IN')}`;
   };
 
+  // Helper to commit parsed text into fully expanded numeric text
+  const handleCorpusCommit = (rawText: string) => {
+    const parsed = parseShorthandNumber(rawText);
+    if (parsed > 0) {
+      setInputs((p) => ({ ...p, initialCorpus: parsed }));
+      setCorpusText(formatNumericString(parsed));
+    } else {
+      setCorpusText(formatNumericString(inputs.initialCorpus));
+    }
+  };
+
+  const handleWithdrawalCommit = (rawText: string) => {
+    const parsed = parseShorthandNumber(rawText);
+    if (parsed > 0) {
+      setInputs((p) => ({ ...p, initialMonthlyWithdrawal: parsed }));
+      setWithdrawalText(formatNumericString(parsed));
+    } else {
+      setWithdrawalText(formatNumericString(inputs.initialMonthlyWithdrawal));
+    }
+  };
+
+  const yearlyLogs = useMemo(() => {
+    if (!report?.monthlyLogs) return [];
+    const filtered = report.monthlyLogs.filter(
+      (l) => l.month % 12 === 0 || l.isCorpusExhausted
+    );
+    const seen = new Set<number>();
+    return filtered.filter((item) => {
+      if (seen.has(item.month)) return false;
+      seen.add(item.month);
+      return true;
+    });
+  }, [report]);
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with Safe Navigation */}
       <View style={styles.headerContainer}>
         <View style={styles.topRow}>
           <TouchableOpacity
@@ -84,7 +156,7 @@ export default function SWPScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Summary KPI Cards */}
+        {/* KPI Summary */}
         <View style={styles.kpiGrid}>
           <View style={styles.kpiCard}>
             <Text style={styles.kpiLabel}>Total Gross Withdrawn</Text>
@@ -122,9 +194,16 @@ export default function SWPScreen() {
               <Text style={styles.inputLabel}>Initial Corpus (₹)</Text>
               <TextInput
                 style={styles.textInput}
-                keyboardType="numeric"
-                value={inputs.initialCorpus.toString()}
-                onChangeText={(t) => handleTextChange('initialCorpus', t)}
+                autoCapitalize="none"
+                value={corpusText}
+                onChangeText={(text) => {
+                  setCorpusText(text);
+                  const parsed = parseShorthandNumber(text);
+                  if (parsed > 0) {
+                    setInputs((p) => ({ ...p, initialCorpus: parsed }));
+                  }
+                }}
+                onBlur={() => handleCorpusCommit(corpusText)}
               />
             </View>
             <Slider
@@ -132,7 +211,10 @@ export default function SWPScreen() {
               maximumValue={100000000}
               step={500000}
               value={inputs.initialCorpus}
-              onValueChange={(v) => setInputs((prev) => ({ ...prev, initialCorpus: v }))}
+              onValueChange={(val) => {
+                setInputs((p) => ({ ...p, initialCorpus: val }));
+                setCorpusText(formatNumericString(val));
+              }}
               minimumTrackTintColor="#2563EB"
               maximumTrackTintColor="#E5E7EB"
             />
@@ -144,9 +226,16 @@ export default function SWPScreen() {
               <Text style={styles.inputLabel}>Monthly Target Withdrawal (Today's ₹)</Text>
               <TextInput
                 style={styles.textInput}
-                keyboardType="numeric"
-                value={inputs.initialMonthlyWithdrawal.toString()}
-                onChangeText={(t) => handleTextChange('initialMonthlyWithdrawal', t)}
+                autoCapitalize="none"
+                value={withdrawalText}
+                onChangeText={(text) => {
+                  setWithdrawalText(text);
+                  const parsed = parseShorthandNumber(text);
+                  if (parsed > 0) {
+                    setInputs((p) => ({ ...p, initialMonthlyWithdrawal: parsed }));
+                  }
+                }}
+                onBlur={() => handleWithdrawalCommit(withdrawalText)}
               />
             </View>
             <Slider
@@ -154,7 +243,10 @@ export default function SWPScreen() {
               maximumValue={500000}
               step={5000}
               value={inputs.initialMonthlyWithdrawal}
-              onValueChange={(v) => setInputs((prev) => ({ ...prev, initialMonthlyWithdrawal: v }))}
+              onValueChange={(val) => {
+                setInputs((p) => ({ ...p, initialMonthlyWithdrawal: val }));
+                setWithdrawalText(formatNumericString(val));
+              }}
               minimumTrackTintColor="#2563EB"
               maximumTrackTintColor="#E5E7EB"
             />
@@ -167,10 +259,12 @@ export default function SWPScreen() {
               <TextInput
                 style={styles.textInput}
                 keyboardType="numeric"
-                value={(inputs.expectedAnnualReturn * 100).toString()}
-                onChangeText={(t) =>
-                  setInputs((prev) => ({ ...prev, expectedAnnualReturn: Number(t) / 100 }))
-                }
+                value={returnText}
+                onChangeText={(text) => {
+                  setReturnText(text);
+                  const parsed = parseFloat(text);
+                  if (!isNaN(parsed)) setInputs((p) => ({ ...p, expectedAnnualReturn: parsed / 100 }));
+                }}
               />
             </View>
             <Slider
@@ -178,7 +272,10 @@ export default function SWPScreen() {
               maximumValue={20}
               step={0.5}
               value={inputs.expectedAnnualReturn * 100}
-              onValueChange={(v) => setInputs((prev) => ({ ...prev, expectedAnnualReturn: v / 100 }))}
+              onValueChange={(val) => {
+                setInputs((p) => ({ ...p, expectedAnnualReturn: val / 100 }));
+                setReturnText(val.toFixed(1));
+              }}
               minimumTrackTintColor="#2563EB"
               maximumTrackTintColor="#E5E7EB"
             />
@@ -191,10 +288,12 @@ export default function SWPScreen() {
               <TextInput
                 style={styles.textInput}
                 keyboardType="numeric"
-                value={(inputs.expectedAnnualInflation * 100).toString()}
-                onChangeText={(t) =>
-                  setInputs((prev) => ({ ...prev, expectedAnnualInflation: Number(t) / 100 }))
-                }
+                value={inflationText}
+                onChangeText={(text) => {
+                  setInflationText(text);
+                  const parsed = parseFloat(text);
+                  if (!isNaN(parsed)) setInputs((p) => ({ ...p, expectedAnnualInflation: parsed / 100 }));
+                }}
               />
             </View>
             <Slider
@@ -202,21 +301,28 @@ export default function SWPScreen() {
               maximumValue={12}
               step={0.5}
               value={inputs.expectedAnnualInflation * 100}
-              onValueChange={(v) => setInputs((prev) => ({ ...prev, expectedAnnualInflation: v / 100 }))}
+              onValueChange={(val) => {
+                setInputs((p) => ({ ...p, expectedAnnualInflation: val / 100 }));
+                setInflationText(val.toFixed(1));
+              }}
               minimumTrackTintColor="#2563EB"
               maximumTrackTintColor="#E5E7EB"
             />
           </View>
 
-          {/* Duration */}
+          {/* Horizon */}
           <View style={styles.inputBlock}>
             <View style={styles.labelRow}>
               <Text style={styles.inputLabel}>SWP Horizon (Years)</Text>
               <TextInput
                 style={styles.textInput}
                 keyboardType="numeric"
-                value={inputs.swpDurationYears.toString()}
-                onChangeText={(t) => handleTextChange('swpDurationYears', t)}
+                value={durationText}
+                onChangeText={(text) => {
+                  setDurationText(text);
+                  const parsed = parseInt(text, 10);
+                  if (!isNaN(parsed)) setInputs((p) => ({ ...p, swpDurationYears: parsed }));
+                }}
               />
             </View>
             <Slider
@@ -224,14 +330,17 @@ export default function SWPScreen() {
               maximumValue={40}
               step={1}
               value={inputs.swpDurationYears}
-              onValueChange={(v) => setInputs((prev) => ({ ...prev, swpDurationYears: v }))}
+              onValueChange={(val) => {
+                setInputs((p) => ({ ...p, swpDurationYears: val }));
+                setDurationText(val.toString());
+              }}
               minimumTrackTintColor="#2563EB"
               maximumTrackTintColor="#E5E7EB"
             />
           </View>
         </View>
 
-        {/* Yearly Table */}
+        {/* Snapshot Table */}
         <View style={styles.tableCard}>
           <Text style={styles.cardTitle}>Yearly SWP Snapshot</Text>
           <View style={styles.tableHeader}>
@@ -240,22 +349,20 @@ export default function SWPScreen() {
             <Text style={styles.thCell}>Tax</Text>
             <Text style={styles.thCell}>Corpus</Text>
           </View>
-          {report.monthlyLogs
-            .filter((l) => l.month % 12 === 0 || l.isCorpusExhausted)
-            .map((row) => (
-              <View key={row.month} style={styles.tableRow}>
-                <Text style={[styles.tdCell, { flex: 0.8, fontWeight: '700' }]}>
-                  Yr {Math.ceil(row.month / 12)}
-                </Text>
-                <Text style={styles.tdCell}>{formatCurrency(row.grossWithdrawal * 12)}</Text>
-                <Text style={[styles.tdCell, { color: '#EF4444' }]}>
-                  {formatCurrency(row.taxPaid * 12)}
-                </Text>
-                <Text style={[styles.tdCell, { fontWeight: '600' }]}>
-                  {formatCurrency(row.endingCorpusValue)}
-                </Text>
-              </View>
-            ))}
+          {yearlyLogs.map((row) => (
+            <View key={`yr-row-${row.month}`} style={styles.tableRow}>
+              <Text style={[styles.tdCell, { flex: 0.8, fontWeight: '700' }]}>
+                Yr {Math.ceil(row.month / 12)}
+              </Text>
+              <Text style={styles.tdCell}>{formatCurrency(row.grossWithdrawal * 12)}</Text>
+              <Text style={[styles.tdCell, { color: '#EF4444' }]}>
+                {formatCurrency(row.taxPaid * 12)}
+              </Text>
+              <Text style={[styles.tdCell, { fontWeight: '600' }]}>
+                {formatCurrency(row.endingCorpusValue)}
+              </Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -264,11 +371,9 @@ export default function SWPScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-
-  // Header Styles
   headerContainer: {
     backgroundColor: '#0F172A',
-    paddingTop: Platform.OS === 'android' ? 36 : 12,
+    paddingTop: 12,
     paddingBottom: 16,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
@@ -319,8 +424,6 @@ const styles = StyleSheet.create({
   },
   pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' },
   taglineText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', letterSpacing: 0.2 },
-
-  // Content Styles
   scrollContent: { padding: 16 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   kpiCard: {
