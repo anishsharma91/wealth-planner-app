@@ -1,25 +1,28 @@
 // # Sliders, Inputs, Top-Up Strategy controls
 
+import { parseShorthandNumber } from '@/utils/formatters';
 import Slider from '@react-native-community/slider';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { CalcMode, Currency } from '../hooks/useWealthPlanner';
 import { TopUpMode } from '../utils/compoundMath';
+
+type StringOrNumberSetter = (val: string | number) => void;
 
 interface Props {
   mode: CalcMode;
   currency: Currency;
   activeSymbol: string;
-  targetCorpus: number; setTargetCorpus: (val: number) => void;
-  monthlySIP: number; setMonthlySIP: (val: number) => void;
-  initialLumpsum: number; setInitialLumpsum: (val: number) => void;
-  stepUp: number; setStepUp: (val: number) => void;
-  returnRate: number; setReturnRate: (val: number) => void;
-  years: number; setYears: (val: number) => void;
-  topUpAmount: number; setTopUpAmount: (val: number) => void;
-  topUpYear: number; setTopUpYear: (val: number) => void;
+  targetCorpus: number; setTargetCorpus: StringOrNumberSetter;
+  monthlySIP: number; setMonthlySIP: StringOrNumberSetter;
+  initialLumpsum: number; setInitialLumpsum: StringOrNumberSetter;
+  stepUp: number; setStepUp: StringOrNumberSetter;
+  returnRate: number; setReturnRate: StringOrNumberSetter;
+  years: number; setYears: StringOrNumberSetter;
+  topUpAmount: number; setTopUpAmount: StringOrNumberSetter;
+  topUpYear: number; setTopUpYear: StringOrNumberSetter;
   topUpMode: TopUpMode; setTopUpMode: (val: TopUpMode) => void;
-  inflationRate: number; setInflationRate: (val: number) => void;
+  inflationRate: number; setInflationRate: StringOrNumberSetter;
 }
 
 const TOP_UP_STRATEGIES: { label: string; value: TopUpMode }[] = [
@@ -29,33 +32,64 @@ const TOP_UP_STRATEGIES: { label: string; value: TopUpMode }[] = [
   { label: 'Every N Yrs', value: 'every_n' },
 ];
 
-export const InputControls: React.FC<Props> = (props) => {
-  const handleNumChange = (text: string, setter: (val: number) => void) => {
-    if (text === '') {
-      setter(0);
-      return;
-    }
-    const cleanNum = parseFloat(text.replace(/[^0-9.]/g, ''));
-    setter(isNaN(cleanNum) ? 0 : cleanNum);
+/**
+ * Reusable Row Component: Handles text state locally so letters (k, L, cr) 
+ * can be typed without being stripped, parsing on blur / submit.
+ */
+interface ShorthandInputRowProps {
+  label: string;
+  value: number;
+  onChangeValue: StringOrNumberSetter;
+  highlight?: boolean;
+}
+
+function ShorthandInputRow({ label, value, onChangeValue, highlight }: ShorthandInputRowProps) {
+  const [text, setText] = useState(value ? value.toString() : '0');
+
+  useEffect(() => {
+    setText(value ? value.toString() : '0');
+  }, [value]);
+
+  const handleBlur = () => {
+    const parsed = parseShorthandNumber(text);
+    onChangeValue(parsed);
   };
 
   return (
+    <View style={styles.labelRow}>
+      <Text style={[styles.inputLabel, highlight && { color: '#2563EB' }]}>{label}</Text>
+      <TextInput
+        style={[styles.textInput, highlight && { borderColor: '#2563EB' }]}
+        keyboardType="default"
+        autoCapitalize="none"
+        value={text}
+        onChangeText={setText}
+        onBlur={handleBlur}
+        onSubmitEditing={handleBlur}
+      />
+    </View>
+  );
+}
+
+export const InputControls: React.FC<Props> = (props) => {
+  return (
     <View style={styles.inputCard}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>Investment Parameters</Text>
+        <View style={styles.shorthandBadge}>
+          <Text style={styles.shorthandBadgeText}>💡 Hint: Type "10k", "1.5L", "2Cr"</Text>
+        </View>
+      </View>
       <Text style={styles.cardTitle}>Investment Parameters</Text>
 
       {props.mode === 'reverse' && (
         <View style={styles.inputBlock}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.inputLabel, { color: '#2563EB' }]}>
-              Target Goal Corpus ({props.activeSymbol})
-            </Text>
-            <TextInput
-              style={[styles.textInput, { borderColor: '#2563EB' }]}
-              keyboardType="numeric"
-              value={props.targetCorpus.toString()}
-              onChangeText={(t) => handleNumChange(t, props.setTargetCorpus)}
-            />
-          </View>
+          <ShorthandInputRow
+            label={`Target Goal Corpus (${props.activeSymbol})`}
+            value={props.targetCorpus}
+            onChangeValue={props.setTargetCorpus}
+            highlight
+          />
           <Slider
             minimumValue={100000}
             maximumValue={props.currency === 'INR' ? 100000000 : 5000000}
@@ -70,15 +104,11 @@ export const InputControls: React.FC<Props> = (props) => {
 
       {props.mode === 'forward' && (
         <View style={styles.inputBlock}>
-          <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>Monthly SIP ({props.activeSymbol})</Text>
-            <TextInput
-              style={styles.textInput}
-              keyboardType="numeric"
-              value={props.monthlySIP.toString()}
-              onChangeText={(t) => handleNumChange(t, props.setMonthlySIP)}
-            />
-          </View>
+          <ShorthandInputRow
+            label={`Monthly SIP (${props.activeSymbol})`}
+            value={props.monthlySIP}
+            onChangeValue={props.setMonthlySIP}
+          />
           <Slider
             minimumValue={500}
             maximumValue={200000}
@@ -92,15 +122,11 @@ export const InputControls: React.FC<Props> = (props) => {
       )}
 
       <View style={styles.inputBlock}>
-        <View style={styles.labelRow}>
-          <Text style={styles.inputLabel}>Initial Lump Sum ({props.activeSymbol})</Text>
-          <TextInput
-            style={styles.textInput}
-            keyboardType="numeric"
-            value={props.initialLumpsum.toString()}
-            onChangeText={(t) => handleNumChange(t, props.setInitialLumpsum)}
-          />
-        </View>
+        <ShorthandInputRow
+          label={`Initial Lump Sum (${props.activeSymbol})`}
+          value={props.initialLumpsum}
+          onChangeValue={props.setInitialLumpsum}
+        />
         <Slider
           minimumValue={0}
           maximumValue={props.currency === 'INR' ? 10000000 : 1000000}
@@ -113,15 +139,11 @@ export const InputControls: React.FC<Props> = (props) => {
       </View>
 
       <View style={styles.inputBlock}>
-        <View style={styles.labelRow}>
-          <Text style={styles.inputLabel}>Annual Step-Up (%)</Text>
-          <TextInput
-            style={styles.textInput}
-            keyboardType="numeric"
-            value={props.stepUp.toString()}
-            onChangeText={(t) => handleNumChange(t, props.setStepUp)}
-          />
-        </View>
+        <ShorthandInputRow
+          label="Annual Step-Up (%)"
+          value={props.stepUp}
+          onChangeValue={props.setStepUp}
+        />
         <Slider
           minimumValue={0}
           maximumValue={30}
@@ -134,15 +156,11 @@ export const InputControls: React.FC<Props> = (props) => {
       </View>
 
       <View style={styles.inputBlock}>
-        <View style={styles.labelRow}>
-          <Text style={styles.inputLabel}>Expected Return (% p.a.)</Text>
-          <TextInput
-            style={styles.textInput}
-            keyboardType="numeric"
-            value={props.returnRate.toString()}
-            onChangeText={(t) => handleNumChange(t, props.setReturnRate)}
-          />
-        </View>
+        <ShorthandInputRow
+          label="Expected Return (% p.a.)"
+          value={props.returnRate}
+          onChangeValue={props.setReturnRate}
+        />
         <Slider
           minimumValue={1}
           maximumValue={25}
@@ -155,20 +173,16 @@ export const InputControls: React.FC<Props> = (props) => {
       </View>
 
       <View style={styles.inputBlock}>
-        <View style={styles.labelRow}>
-          <Text style={styles.inputLabel}>Investment Horizon (Years)</Text>
-          <TextInput
-            style={styles.textInput}
-            keyboardType="numeric"
-            value={props.years.toString()}
-            onChangeText={(t) =>
-              handleNumChange(t, (v) => {
-                props.setYears(v);
-                if (props.topUpYear > v) props.setTopUpYear(v);
-              })
-            }
-          />
-        </View>
+        <ShorthandInputRow
+          label="Investment Horizon (Years)"
+          value={props.years}
+          onChangeValue={(v) => {
+            props.setYears(v);
+            // Convert to number for comparison if topUpYear needs to be capped
+            const numVal = typeof v === 'number' ? v : parseShorthandNumber(v);
+            if (props.topUpYear > numVal) props.setTopUpYear(numVal);
+          }}
+        />
         <Slider
           minimumValue={1}
           maximumValue={40}
@@ -208,15 +222,11 @@ export const InputControls: React.FC<Props> = (props) => {
           ))}
         </View>
         <View style={styles.inputBlock}>
-          <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>Top-Up Amount ({props.activeSymbol})</Text>
-            <TextInput
-              style={styles.textInput}
-              keyboardType="numeric"
-              value={props.topUpAmount.toString()}
-              onChangeText={(t) => handleNumChange(t, props.setTopUpAmount)}
-            />
-          </View>
+          <ShorthandInputRow
+            label={`Top-Up Amount (${props.activeSymbol})`}
+            value={props.topUpAmount}
+            onChangeValue={props.setTopUpAmount}
+          />
           <Slider
             minimumValue={0}
             maximumValue={props.currency === 'INR' ? 5000000 : 500000}
@@ -230,15 +240,11 @@ export const InputControls: React.FC<Props> = (props) => {
       </View>
 
       <View style={styles.inputBlock}>
-        <View style={styles.labelRow}>
-          <Text style={styles.inputLabel}>Assumed Inflation Rate (%)</Text>
-          <TextInput
-            style={styles.textInput}
-            keyboardType="numeric"
-            value={props.inflationRate.toString()}
-            onChangeText={(t) => handleNumChange(t, props.setInflationRate)}
-          />
-        </View>
+        <ShorthandInputRow
+          label="Assumed Inflation Rate (%)"
+          value={props.inflationRate}
+          onChangeValue={props.setInflationRate}
+        />
         <Slider
           minimumValue={0}
           maximumValue={12}
@@ -304,4 +310,26 @@ const styles = StyleSheet.create({
   strategyChipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   strategyChipText: { fontSize: 11, fontWeight: '600', color: '#475569' },
   strategyChipTextActive: { color: '#FFFFFF' },
+  cardHeader: {
+    marginBottom: 12,
+  },
+  shorthandBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  shorthandBadgeText: {
+    fontSize: 11,
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  inputSubtext: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 1,
+  }
 });
